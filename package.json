@@ -4,6 +4,10 @@
   "description": "Integrates your local LLM API Proxy into VS Code Copilot Chat with dynamic model discovery",
   "version": "0.1.0",
   "publisher": "llmapiproxy",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vleeuwenmenno/llmapiproxy-vscode-extension"
+  },
   "license": "MIT",
   "engines": {
     "vscode": "^1.104.0"
