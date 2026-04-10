@@ -1,0 +1,74 @@
+{
+  "name": "llmapiproxy-vscode-chat",
+  "displayName": "LLM API Proxy Chat Provider",
+  "description": "Integrates your local LLM API Proxy into VS Code Copilot Chat with dynamic model discovery",
+  "version": "0.1.0",
+  "publisher": "llmapiproxy",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.104.0"
+  },
+  "categories": [
+    "AI",
+    "Chat"
+  ],
+  "keywords": [
+    "ai",
+    "chat",
+    "copilot",
+    "llm",
+    "proxy",
+    "openai"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languageModelChatProviders": [
+      {
+        "vendor": "llmapiproxy",
+        "displayName": "LLM API Proxy",
+        "managementCommand": "llmapiproxy.manage"
+      }
+    ],
+    "commands": [
+      {
+        "command": "llmapiproxy.manage",
+        "title": "Manage LLM API Proxy Connection",
+        "category": "LLM API Proxy"
+      },
+      {
+        "command": "llmapiproxy.refreshModels",
+        "title": "Refresh Available Models",
+        "category": "LLM API Proxy"
+      }
+    ],
+    "configuration": {
+      "title": "LLM API Proxy",
+      "properties": {
+        "llmapiproxy.proxyUrl": {
+          "type": "string",
+          "default": "http://localhost:8000",
+          "description": "Base URL of the LLM API Proxy server (e.g. http://localhost:8000)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "download-api": "dts dev",
+    "postdownload-api": "dts main",
+    "postinstall": "npm run download-api",
+    "compile": "tsc -p ./",
+    "watch": "tsc -w -p ./",
+    "lint": "eslint src",
+    "package": "vsce package --no-yarn"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.104.0",
+    "@vscode/dts": "^0.4.1",
+    "typescript": "^5.4.0"
+  }
+}
