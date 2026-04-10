@@ -13,19 +13,24 @@ export function activate(context: vscode.ExtensionContext) {
       if (e.key === "llmapiproxy.apiKey") {
         _provider?.fireModelInfoChanged();
       }
-    })
+    }),
   );
 
   // Re-fetch models when proxy URL setting changes
   context.subscriptions.push(
-    vscode.workspace.onDidChangeConfiguration((e: vscode.ConfigurationChangeEvent) => {
-      if (e.affectsConfiguration("llmapiproxy.proxyUrl")) {
-        _provider?.fireModelInfoChanged();
-      }
-    })
+    vscode.workspace.onDidChangeConfiguration(
+      (e: vscode.ConfigurationChangeEvent) => {
+        if (e.affectsConfiguration("llmapiproxy.proxyUrl")) {
+          _provider?.fireModelInfoChanged();
+        }
+      },
+    ),
   );
 
-  const registration = vscode.lm.registerLanguageModelChatProvider("llmapiproxy", provider);
+  const registration = vscode.lm.registerLanguageModelChatProvider(
+    "llmapiproxy",
+    provider,
+  );
   context.subscriptions.push(registration);
 
   context.subscriptions.push(
@@ -36,9 +41,11 @@ export function activate(context: vscode.ExtensionContext) {
         [
           { label: "$(key) Set / Update API Key", action: "apikey" },
           { label: "$(globe) Change Proxy URL", action: "url" },
-          ...(existing ? [{ label: "$(trash) Clear API Key", action: "clear" }] : []),
+          ...(existing
+            ? [{ label: "$(trash) Clear API Key", action: "clear" }]
+            : []),
         ],
-        { title: "LLM API Proxy: Manage Connection" }
+        { title: "LLM API Proxy: Manage Connection" },
       );
 
       if (!choice) return;
@@ -46,7 +53,9 @@ export function activate(context: vscode.ExtensionContext) {
       if (choice.action === "apikey") {
         const apiKey = await vscode.window.showInputBox({
           title: "LLM API Proxy API Key",
-          prompt: existing ? "Update your proxy API key" : "Enter your proxy API key",
+          prompt: existing
+            ? "Update your proxy API key"
+            : "Enter your proxy API key",
           ignoreFocusOut: true,
           password: true,
           value: existing ?? "",
@@ -54,7 +63,9 @@ export function activate(context: vscode.ExtensionContext) {
         });
         if (apiKey === undefined) return;
         if (!apiKey.trim()) {
-          vscode.window.showWarningMessage("LLM API Proxy: API key not changed (empty value).");
+          vscode.window.showWarningMessage(
+            "LLM API Proxy: API key not changed (empty value).",
+          );
           return;
         }
         await context.secrets.store("llmapiproxy.apiKey", apiKey.trim());
@@ -72,24 +83,34 @@ export function activate(context: vscode.ExtensionContext) {
         });
         if (newUrl === undefined) return;
         if (!newUrl.trim()) {
-          vscode.window.showWarningMessage("LLM API Proxy: URL not changed (empty value).");
+          vscode.window.showWarningMessage(
+            "LLM API Proxy: URL not changed (empty value).",
+          );
           return;
         }
-        await cfg.update("proxyUrl", newUrl.trim(), vscode.ConfigurationTarget.Global);
-        vscode.window.showInformationMessage(`LLM API Proxy: Proxy URL updated to ${newUrl.trim()}`);
+        await cfg.update(
+          "proxyUrl",
+          newUrl.trim(),
+          vscode.ConfigurationTarget.Global,
+        );
+        vscode.window.showInformationMessage(
+          `LLM API Proxy: Proxy URL updated to ${newUrl.trim()}`,
+        );
       } else if (choice.action === "clear") {
         await context.secrets.delete("llmapiproxy.apiKey");
         vscode.window.showInformationMessage("LLM API Proxy: API key cleared.");
         _provider?.fireModelInfoChanged();
       }
-    })
+    }),
   );
 
   context.subscriptions.push(
     vscode.commands.registerCommand("llmapiproxy.refreshModels", () => {
       _provider?.fireModelInfoChanged();
-      vscode.window.showInformationMessage("LLM API Proxy: Model list refreshed.");
-    })
+      vscode.window.showInformationMessage(
+        "LLM API Proxy: Model list refreshed.",
+      );
+    }),
   );
 
   console.log("[LLM API Proxy] Extension activated");

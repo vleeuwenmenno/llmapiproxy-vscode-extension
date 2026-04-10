@@ -16,7 +16,9 @@ interface LegacyPart {
   [key: string]: unknown;
 }
 
-function getTextValue(part: vscode.LanguageModelInputPart | LegacyPart): string | undefined {
+function getTextValue(
+  part: vscode.LanguageModelInputPart | LegacyPart,
+): string | undefined {
   if (part instanceof vscode.LanguageModelTextPart) {
     return part.value;
   }
@@ -28,7 +30,7 @@ function getTextValue(part: vscode.LanguageModelInputPart | LegacyPart): string 
 }
 
 function getToolCallInfo(
-  part: vscode.LanguageModelInputPart | LegacyPart
+  part: vscode.LanguageModelInputPart | LegacyPart,
 ): { id?: string; name?: string; args?: unknown } | undefined {
   if (part instanceof vscode.LanguageModelToolCallPart) {
     return { id: part.callId, name: part.name, args: part.input };
@@ -61,7 +63,9 @@ function isToolResultPart(part: LegacyPart): boolean {
   return false;
 }
 
-function getToolResultText(part: vscode.LanguageModelInputPart | LegacyPart): { callId: string; content: string } | undefined {
+function getToolResultText(
+  part: vscode.LanguageModelInputPart | LegacyPart,
+): { callId: string; content: string } | undefined {
   if (part instanceof vscode.LanguageModelToolResultPart) {
     const texts: string[] = [];
     for (const inner of part.content) {
@@ -79,7 +83,7 @@ function getToolResultText(part: vscode.LanguageModelInputPart | LegacyPart): { 
 
 /** Convert VS Code messages to OpenAI-compatible format */
 export function convertMessages(
-  messages: readonly vscode.LanguageModelChatMessage[]
+  messages: readonly vscode.LanguageModelChatMessage[],
 ): ChatMessage[] {
   const result: ChatMessage[] = [];
 
@@ -98,8 +102,14 @@ export function convertMessages(
     }
 
     const toolCalls = msg.content
-      .map((p: vscode.LanguageModelInputPart | LegacyPart) => getToolCallInfo(p))
-      .filter((t: { id?: string; name?: string; args?: unknown } | undefined): t is { id?: string; name?: string; args?: unknown } => !!t);
+      .map((p: vscode.LanguageModelInputPart | LegacyPart) =>
+        getToolCallInfo(p),
+      )
+      .filter(
+        (
+          t: { id?: string; name?: string; args?: unknown } | undefined,
+        ): t is { id?: string; name?: string; args?: unknown } => !!t,
+      );
 
     let emitted = false;
 
@@ -107,15 +117,19 @@ export function convertMessages(
       result.push({
         role: "assistant",
         content: textParts.join("") || "",
-        tool_calls: toolCalls.map((tc: { id?: string; name?: string; args?: unknown }) => ({
-          id: tc.id ?? `call_${Math.random().toString(36).slice(2, 10)}`,
-          type: "function",
-          function: {
-            name: tc.name ?? "unknown",
-            arguments:
-              typeof tc.args === "string" ? tc.args : JSON.stringify(tc.args ?? {}),
-          },
-        })),
+        tool_calls: toolCalls.map(
+          (tc: { id?: string; name?: string; args?: unknown }) => ({
+            id: tc.id ?? `call_${Math.random().toString(36).slice(2, 10)}`,
+            type: "function",
+            function: {
+              name: tc.name ?? "unknown",
+              arguments:
+                typeof tc.args === "string"
+                  ? tc.args
+                  : JSON.stringify(tc.args ?? {}),
+            },
+          }),
+        ),
       });
       emitted = true;
     }
@@ -132,7 +146,10 @@ export function convertMessages(
       }
     }
 
-    if (textParts.length > 0 && !(role === "assistant" && toolCalls.length > 0)) {
+    if (
+      textParts.length > 0 &&
+      !(role === "assistant" && toolCalls.length > 0)
+    ) {
       result.push({ role, content: textParts.join("") });
       emitted = true;
     }
@@ -147,8 +164,11 @@ export function convertMessages(
 
 /** Convert VS Code tool options to OpenAI-compatible format */
 export function convertTools(
-  options: vscode.ProvideLanguageModelChatResponseOptions
-): { tools?: Tool[]; tool_choice?: "auto" | "none" | { type: string; function: { name: string } } } {
+  options: vscode.ProvideLanguageModelChatResponseOptions,
+): {
+  tools?: Tool[];
+  tool_choice?: "auto" | "none" | { type: string; function: { name: string } };
+} {
   const toolsInput = options.tools ?? [];
   if (toolsInput.length === 0) return {};
 
@@ -161,9 +181,18 @@ export function convertTools(
     },
   }));
 
-  let tool_choice: "auto" | "none" | { type: string; function: { name: string } } = "auto";
-  if (options.toolMode === vscode.LanguageModelChatToolMode.Required && tools.length === 1) {
-    tool_choice = { type: "function", function: { name: tools[0].function.name } };
+  let tool_choice:
+    | "auto"
+    | "none"
+    | { type: string; function: { name: string } } = "auto";
+  if (
+    options.toolMode === vscode.LanguageModelChatToolMode.Required &&
+    tools.length === 1
+  ) {
+    tool_choice = {
+      type: "function",
+      function: { name: tools[0].function.name },
+    };
   }
 
   return { tools, tool_choice };
