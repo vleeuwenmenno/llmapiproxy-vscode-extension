@@ -34,6 +34,7 @@ interface ModelsCache {
 
 export class ProxyChatModelProvider implements LanguageModelChatProvider {
   private _modelsCache: ModelsCache | null = null;
+  private _hasShownNoKeyNotification = false;
 
   private readonly _onDidChangeLanguageModelChatInformation =
     new EventEmitter<void>();
@@ -43,6 +44,7 @@ export class ProxyChatModelProvider implements LanguageModelChatProvider {
 
   fireModelInfoChanged(): void {
     this._modelsCache = null;
+    this._hasShownNoKeyNotification = false; // Reset so user sees notification again next scan
     this._onDidChangeLanguageModelChatInformation.fire();
   }
 
@@ -99,16 +101,21 @@ export class ProxyChatModelProvider implements LanguageModelChatProvider {
         seen.add(m.id);
         return true;
       })
-      .map((m) => ({
-        id: m.id,
-        displayName: m.display_name
-          ? `${m.display_name} (${extractBackend(m.id)})`
-          : makeDisplayName(m.id),
-        backend: extractBackend(m.id),
-        contextLength: m.context_length,
-        maxOutputTokens: m.max_output_tokens,
-        supportsVision: m.capabilities?.includes("vision") ?? false,
-      }));
+      .map((m) => {
+        const backendPrefix = extractBackend(m.id);
+        return {
+          id: m.id,
+          displayName: m.display_name
+            ? backendPrefix
+              ? `${m.display_name} (${backendPrefix})`
+              : m.display_name
+            : makeDisplayName(m.id),
+          backend: backendPrefix,
+          contextLength: m.context_length,
+          maxOutputTokens: m.max_output_tokens,
+          supportsVision: m.capabilities?.includes("vision") ?? false,
+        };
+      });
   }
 
   private async getModels(silent: boolean): Promise<ModelInfo[]> {
@@ -121,12 +128,28 @@ export class ProxyChatModelProvider implements LanguageModelChatProvider {
     }
 
     const apiKey = await this.getApiKey(silent);
-    if (!apiKey) return [];
+    if (!apiKey) {
+      if (silent && !this._hasShownNoKeyNotification) {
+        this._hasShownNoKeyNotification = true;
+        vscode.window
+          .showInformationMessage(
+            "LLM API Proxy: No API key configured. Models will not be available.",
+            "Configure",
+          )
+          .then((choice) => {
+            if (choice === "Configure") {
+              vscode.commands.executeCommand("llmapiproxy.manage");
+            }
+          });
+      }
+      return [];
+    }
 
     const { proxyUrl } = this.getConfig();
     try {
       const models = await this.fetchModels(proxyUrl, apiKey);
       this._modelsCache = { models, fetchedAt: now };
+      this._hasShownNoKeyNotification = false; // key works — reset so we notify again if it's later removed
       return models;
     } catch (err) {
       console.error("[LLM Proxy] Failed to fetch models:", err);
