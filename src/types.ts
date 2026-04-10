@@ -84,6 +84,8 @@ export interface ProxyModel {
   object: string;
   created: number;
   owned_by: string;
+  /** Human-readable display name, e.g. "Claude Sonnet 4" (may be absent) */
+  display_name?: string;
   /** Context window size in tokens (may be absent for static model lists) */
   context_length?: number;
   /** Max output tokens (may be absent for static model lists) */

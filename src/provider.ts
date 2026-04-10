@@ -101,7 +101,9 @@ export class ProxyChatModelProvider implements LanguageModelChatProvider {
       })
       .map((m) => ({
         id: m.id,
-        displayName: makeDisplayName(m.id),
+        displayName: m.display_name
+          ? `${m.display_name} (${extractBackend(m.id)})`
+          : makeDisplayName(m.id),
         backend: extractBackend(m.id),
         contextLength: m.context_length,
         maxOutputTokens: m.max_output_tokens,
