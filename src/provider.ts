@@ -161,7 +161,9 @@ export class ProxyChatModelProvider implements LanguageModelChatProvider {
       return {
         id: m.id,
         name: m.displayName,
-        detail: m.backend ? `via LLM API Proxy (${m.backend})` : "via LLM API Proxy",
+        detail: m.backend
+          ? `via LLM API Proxy (${m.backend})`
+          : "via LLM API Proxy",
         tooltip: `Model: ${m.id}`,
         family: "llmapiproxy",
         version: "1.0.0",
