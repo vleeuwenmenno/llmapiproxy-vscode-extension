@@ -91,14 +91,22 @@ export class ProxyChatModelProvider implements LanguageModelChatProvider {
     }
 
     const data = (await response.json()) as ProxyModelList;
-    return (data.data ?? []).map((m) => ({
-      id: m.id,
-      displayName: makeDisplayName(m.id),
-      backend: extractBackend(m.id),
-      contextLength: m.context_length,
-      maxOutputTokens: m.max_output_tokens,
-      supportsVision: m.capabilities?.includes("vision") ?? false,
-    }));
+    // Deduplicate models by ID (safety net in case proxy returns duplicates)
+    const seen = new Set<string>();
+    return (data.data ?? [])
+      .filter((m) => {
+        if (seen.has(m.id)) return false;
+        seen.add(m.id);
+        return true;
+      })
+      .map((m) => ({
+        id: m.id,
+        displayName: makeDisplayName(m.id),
+        backend: extractBackend(m.id),
+        contextLength: m.context_length,
+        maxOutputTokens: m.max_output_tokens,
+        supportsVision: m.capabilities?.includes("vision") ?? false,
+      }));
   }
 
   private async getModels(silent: boolean): Promise<ModelInfo[]> {
@@ -151,7 +159,7 @@ export class ProxyChatModelProvider implements LanguageModelChatProvider {
       return {
         id: m.id,
         name: m.displayName,
-        detail: `via LLM API Proxy (${m.backend || "proxy"})`,
+        detail: m.backend ? `via LLM API Proxy (${m.backend})` : "via LLM API Proxy",
         tooltip: `Model: ${m.id}`,
         family: "llmapiproxy",
         version: "1.0.0",
