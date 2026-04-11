@@ -53,6 +53,8 @@ export class ProxyChatModelProvider implements LanguageModelChatProvider {
   private _lastUsage = new Map<string, TokenUsage>();
   private _tokenRatios = new Map<string, TokenRatio>();
   private _statusBarItem: vscode.StatusBarItem | null = null;
+  private _outputChannel: vscode.OutputChannel | null = null;
+  private _requestCounter = 0;
 
   private readonly _onDidChangeLanguageModelChatInformation =
     new EventEmitter<void>();
@@ -185,6 +187,42 @@ export class ProxyChatModelProvider implements LanguageModelChatProvider {
     this._statusBarItem = item;
   }
 
+  /** Set the output channel for detailed usage logging */
+  setOutputChannel(channel: vscode.OutputChannel): void {
+    this._outputChannel = channel;
+  }
+
+  /** Extract a short label from the first user message for chat identification */
+  private extractChatLabel(
+    messages: readonly vscode.LanguageModelChatMessage[],
+  ): string {
+    for (const msg of messages) {
+      if (msg.role === vscode.LanguageModelChatMessageRole.User) {
+        const parts =
+          typeof (msg as unknown as { content?: unknown }).content === "string"
+            ? [(msg as unknown as { content: string }).content]
+            : Array.isArray((msg as unknown as { content?: unknown[] }).content)
+              ? ((msg as unknown as { content: unknown[] }).content as Array<{
+                  type?: string;
+                  value?: string;
+                  text?: string;
+                }>)
+                  .filter((p) => p.type === "text" || typeof p.value === "string" || typeof p.text === "string")
+                  .map((p) => p.value ?? p.text ?? "")
+              : [];
+        const text = parts.join(" ").trim();
+        if (text) {
+          // Take first line, truncate to 40 chars
+          const firstLine = text.split("\n")[0].trim();
+          return firstLine.length > 40
+            ? firstLine.slice(0, 37) + "..."
+            : firstLine;
+        }
+      }
+    }
+    return "(untitled)";
+  }
+
   async provideTokenCount(
     model: LanguageModelChatInformation,
     text: string | vscode.LanguageModelChatRequestMessage,
@@ -298,9 +336,28 @@ export class ProxyChatModelProvider implements LanguageModelChatProvider {
 
       if (usage) {
         this._lastUsage.set(model.id, usage);
+        this._requestCounter++;
+        const chatLabel = this.extractChatLabel(messages);
+
+        // Console log (always)
         console.log(
-          `[LLM Proxy] ${model.id}: prompt=${usage.promptTokens} completion=${usage.completionTokens} total=${usage.totalTokens}`,
+          `[LLM Proxy] #${this._requestCounter} "${chatLabel}" | ${model.id}: prompt=${usage.promptTokens} completion=${usage.completionTokens} total=${usage.totalTokens}`,
         );
+
+        // Output channel log (detailed, per-request history)
+        if (this._outputChannel) {
+          const ts = new Date().toLocaleTimeString();
+          this._outputChannel.appendLine(
+            [
+              `[${ts}] Request #${this._requestCounter}`,
+              `  Chat:  ${chatLabel}`,
+              `  Model: ${model.id}`,
+              `  Prompt:     ${usage.promptTokens.toLocaleString()} tokens`,
+              `  Completion: ${usage.completionTokens.toLocaleString()} tokens`,
+              `  Total:      ${usage.totalTokens.toLocaleString()}`,
+            ].join("\n"),
+          );
+        }
 
         // Update adaptive token ratio
         if (usage.promptTokens > 0 && inputStr.length > 0) {
@@ -318,15 +375,19 @@ export class ProxyChatModelProvider implements LanguageModelChatProvider {
           }
         }
 
-        // Update status bar
-        this.updateStatusBar(model.id, usage);
+        // Update status bar (shows last request with chat label)
+        this.updateStatusBar(model.id, usage, chatLabel);
       }
     } finally {
       cancelSub.dispose();
     }
   }
 
-  private updateStatusBar(modelId: string, usage: TokenUsage): void {
+  private updateStatusBar(
+    modelId: string,
+    usage: TokenUsage,
+    chatLabel: string,
+  ): void {
     if (!this._statusBarItem) return;
     const promptK =
       usage.promptTokens >= 1000
@@ -336,13 +397,21 @@ export class ProxyChatModelProvider implements LanguageModelChatProvider {
       usage.completionTokens >= 1000
         ? `${(usage.completionTokens / 1000).toFixed(1)}k`
         : `${usage.completionTokens}`;
-    this._statusBarItem.text = `$(sparkle) ${promptK}↑ ${completionK}↓`;
+    // Truncate chat label for status bar (max ~20 chars to stay compact)
+    const shortLabel =
+      chatLabel.length > 20 ? chatLabel.slice(0, 17) + "..." : chatLabel;
+    this._statusBarItem.text = `$(sparkle) "${shortLabel}" ${promptK}↑ ${completionK}↓`;
     this._statusBarItem.tooltip = [
-      `LLM Proxy Token Usage (${modelId})`,
+      `LLM Proxy — Last Request (#${this._requestCounter})`,
+      ``,
+      `Chat:  ${chatLabel}`,
+      `Model: ${modelId}`,
+      ``,
       `  Prompt:     ${usage.promptTokens.toLocaleString()} tokens`,
       `  Completion: ${usage.completionTokens.toLocaleString()} tokens`,
       `  Total:      ${usage.totalTokens.toLocaleString()} tokens`,
     ].join("\n");
+    this._statusBarItem.command = "llmapiproxy.showUsageLog";
     this._statusBarItem.show();
   }
 

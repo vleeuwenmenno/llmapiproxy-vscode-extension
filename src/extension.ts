@@ -27,6 +27,11 @@ export function activate(context: vscode.ExtensionContext) {
     ),
   );
 
+  // Output channel for detailed per-request usage history
+  const outputChannel = vscode.window.createOutputChannel("LLM Proxy Usage");
+  context.subscriptions.push(outputChannel);
+  provider.setOutputChannel(outputChannel);
+
   // Status bar item for token usage display
   const statusBarItem = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Right,
@@ -41,6 +46,13 @@ export function activate(context: vscode.ExtensionContext) {
     provider,
   );
   context.subscriptions.push(registration);
+
+  // Command to show the usage output channel
+  context.subscriptions.push(
+    vscode.commands.registerCommand("llmapiproxy.showUsageLog", () => {
+      outputChannel.show(true);
+    }),
+  );
 
   context.subscriptions.push(
     vscode.commands.registerCommand("llmapiproxy.manage", async () => {
