@@ -27,6 +27,15 @@ export function activate(context: vscode.ExtensionContext) {
     ),
   );
 
+  // Status bar item for token usage display
+  const statusBarItem = vscode.window.createStatusBarItem(
+    vscode.StatusBarAlignment.Right,
+    100, // low priority
+  );
+  statusBarItem.name = "LLM Proxy Token Usage";
+  context.subscriptions.push(statusBarItem);
+  provider.setStatusBarItem(statusBarItem);
+
   const registration = vscode.lm.registerLanguageModelChatProvider(
     "llmapiproxy",
     provider,

@@ -51,6 +51,7 @@ export interface ChatRequest {
   temperature?: number;
   max_tokens?: number;
   stream?: boolean;
+  stream_options?: { include_usage: boolean };
   tools?: Tool[];
   tool_choice?: "auto" | "none" | { type: string; function: { name: string } };
 }

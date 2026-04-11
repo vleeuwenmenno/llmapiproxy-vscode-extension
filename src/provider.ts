@@ -26,15 +26,33 @@ import {
 const DEFAULT_MAX_INPUT_TOKENS = 128000;
 const DEFAULT_MAX_OUTPUT_TOKENS = 8192;
 const MODELS_CACHE_TTL_MS = 60_000;
+const EMA_ALPHA = 0.3;
+const MIN_SAMPLES_FOR_LEARNING = 3;
 
 interface ModelsCache {
   models: ModelInfo[];
   fetchedAt: number;
 }
 
+interface TokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
+interface TokenRatio {
+  /** tokens per character (learned from actual API usage) */
+  ratio: number;
+  /** number of samples collected */
+  samples: number;
+}
+
 export class ProxyChatModelProvider implements LanguageModelChatProvider {
   private _modelsCache: ModelsCache | null = null;
   private _hasShownNoKeyNotification = false;
+  private _lastUsage = new Map<string, TokenUsage>();
+  private _tokenRatios = new Map<string, TokenRatio>();
+  private _statusBarItem: vscode.StatusBarItem | null = null;
 
   private readonly _onDidChangeLanguageModelChatInformation =
     new EventEmitter<void>();
@@ -162,12 +180,21 @@ export class ProxyChatModelProvider implements LanguageModelChatProvider {
     }
   }
 
+  /** Set the status bar item to update after each request */
+  setStatusBarItem(item: vscode.StatusBarItem): void {
+    this._statusBarItem = item;
+  }
+
   async provideTokenCount(
-    _model: LanguageModelChatInformation,
+    model: LanguageModelChatInformation,
     text: string | vscode.LanguageModelChatRequestMessage,
     _token: CancellationToken,
   ): Promise<number> {
     const str = typeof text === "string" ? text : JSON.stringify(text);
+    const learned = this._tokenRatios.get(model.id);
+    if (learned && learned.samples >= MIN_SAMPLES_FOR_LEARNING) {
+      return Math.ceil(str.length * learned.ratio);
+    }
     return Math.ceil(str.length / 4);
   }
 
@@ -224,10 +251,13 @@ export class ProxyChatModelProvider implements LanguageModelChatProvider {
       const { tools, tool_choice } = convertTools(options);
       const convertedMessages = convertMessages(messages);
 
+      // Estimate input characters for adaptive ratio learning
+      const inputStr = JSON.stringify(convertedMessages);
       const body: ChatRequest = {
         model: model.id,
         messages: convertedMessages,
         stream: true,
+        stream_options: { include_usage: true },
         ...(tools && tools.length > 0 ? { tools, tool_choice } : {}),
       };
 
@@ -260,20 +290,71 @@ export class ProxyChatModelProvider implements LanguageModelChatProvider {
         throw new Error("LLM API Proxy: response body is empty");
       }
 
-      await this.processStream(response.body, progress, token);
+      const usage = await this.processStream(
+        response.body,
+        progress,
+        token,
+      );
+
+      if (usage) {
+        this._lastUsage.set(model.id, usage);
+        console.log(
+          `[LLM Proxy] ${model.id}: prompt=${usage.promptTokens} completion=${usage.completionTokens} total=${usage.totalTokens}`,
+        );
+
+        // Update adaptive token ratio
+        if (usage.promptTokens > 0 && inputStr.length > 0) {
+          const sampleRatio = usage.promptTokens / inputStr.length;
+          const existing = this._tokenRatios.get(model.id);
+          if (existing) {
+            existing.ratio =
+              EMA_ALPHA * sampleRatio + (1 - EMA_ALPHA) * existing.ratio;
+            existing.samples++;
+          } else {
+            this._tokenRatios.set(model.id, {
+              ratio: sampleRatio,
+              samples: 1,
+            });
+          }
+        }
+
+        // Update status bar
+        this.updateStatusBar(model.id, usage);
+      }
     } finally {
       cancelSub.dispose();
     }
+  }
+
+  private updateStatusBar(modelId: string, usage: TokenUsage): void {
+    if (!this._statusBarItem) return;
+    const promptK =
+      usage.promptTokens >= 1000
+        ? `${(usage.promptTokens / 1000).toFixed(1)}k`
+        : `${usage.promptTokens}`;
+    const completionK =
+      usage.completionTokens >= 1000
+        ? `${(usage.completionTokens / 1000).toFixed(1)}k`
+        : `${usage.completionTokens}`;
+    this._statusBarItem.text = `$(sparkle) ${promptK}↑ ${completionK}↓`;
+    this._statusBarItem.tooltip = [
+      `LLM Proxy Token Usage (${modelId})`,
+      `  Prompt:     ${usage.promptTokens.toLocaleString()} tokens`,
+      `  Completion: ${usage.completionTokens.toLocaleString()} tokens`,
+      `  Total:      ${usage.totalTokens.toLocaleString()} tokens`,
+    ].join("\n");
+    this._statusBarItem.show();
   }
 
   private async processStream(
     body: ReadableStream<Uint8Array>,
     progress: Progress<LanguageModelResponsePart>,
     token: CancellationToken,
-  ): Promise<void> {
+  ): Promise<TokenUsage | null> {
     const reader = body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
+    let capturedUsage: TokenUsage | null = null;
 
     /** Accumulate streamed tool call deltas by index */
     const toolCallBuffers = new Map<
@@ -293,13 +374,25 @@ export class ProxyChatModelProvider implements LanguageModelChatProvider {
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
           const data = line.slice(6).trim();
-          if (data === "[DONE]") return;
+          if (data === "[DONE]") return capturedUsage;
 
           let chunk: StreamResponse;
           try {
             chunk = JSON.parse(data) as StreamResponse;
           } catch {
             continue;
+          }
+
+          // Capture usage from final chunk (sent when stream_options.include_usage is true)
+          if (
+            chunk.usage &&
+            (chunk.usage.prompt_tokens ?? 0) > 0
+          ) {
+            capturedUsage = {
+              promptTokens: chunk.usage.prompt_tokens ?? 0,
+              completionTokens: chunk.usage.completion_tokens ?? 0,
+              totalTokens: chunk.usage.total_tokens ?? 0,
+            };
           }
 
           for (const choice of chunk.choices) {
@@ -358,6 +451,7 @@ export class ProxyChatModelProvider implements LanguageModelChatProvider {
     } finally {
       reader.releaseLock();
     }
+    return capturedUsage;
   }
 
   constructor(private readonly _secrets: vscode.SecretStorage) {}
