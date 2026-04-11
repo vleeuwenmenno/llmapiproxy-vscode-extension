@@ -230,17 +230,45 @@ export class ProxyChatModelProvider implements LanguageModelChatProvider {
     return "(untitled)";
   }
 
+  /**
+   * Extract the actual text content from a chat message, ignoring JSON structure.
+   * This avoids the massive overestimation that JSON.stringify causes.
+   */
+  private extractTextLength(
+    text: string | vscode.LanguageModelChatRequestMessage,
+  ): number {
+    if (typeof text === "string") {
+      return text.length;
+    }
+    // LanguageModelChatRequestMessage — sum text from content parts only
+    let len = 0;
+    for (const part of text.content) {
+      if (part instanceof vscode.LanguageModelTextPart) {
+        len += part.value.length;
+      } else if (
+        typeof part === "object" &&
+        part !== null &&
+        "value" in part &&
+        typeof (part as { value: unknown }).value === "string"
+      ) {
+        len += (part as { value: string }).value.length;
+      }
+    }
+    // Fallback: if no text parts found at all, use JSON length as last resort
+    return len > 0 ? len : JSON.stringify(text).length;
+  }
+
   async provideTokenCount(
     model: LanguageModelChatInformation,
     text: string | vscode.LanguageModelChatRequestMessage,
     _token: CancellationToken,
   ): Promise<number> {
-    const str = typeof text === "string" ? text : JSON.stringify(text);
+    const charLen = this.extractTextLength(text);
     const learned = this._tokenRatios.get(model.id);
     if (learned && learned.samples >= MIN_SAMPLES_FOR_LEARNING) {
-      return Math.ceil(str.length * learned.ratio);
+      return Math.ceil(charLen * learned.ratio);
     }
-    return Math.ceil(str.length / 4);
+    return Math.ceil(charLen / 4);
   }
 
   async provideLanguageModelChatInformation(
@@ -251,8 +279,11 @@ export class ProxyChatModelProvider implements LanguageModelChatProvider {
     return models.map((m) => {
       const maxOutput = m.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
       const contextWindow = m.contextLength ?? DEFAULT_MAX_INPUT_TOKENS;
-      // Leave room for output within the context window
-      const maxInput = Math.max(1, contextWindow - maxOutput);
+      // Use the full context window as maxInputTokens — VS Code's internal
+      // compaction algorithm already reserves space for output tokens.
+      // Subtracting maxOutput here caused double-reservation and premature
+      // compaction (e.g. GPT-4 base: 8192 - 8192 = 1 token max input).
+      const maxInput = Math.max(4096, contextWindow);
       return {
         id: m.id,
         name: m.displayName,
