@@ -2,7 +2,7 @@
   "name": "llmapiproxy-vscode-chat",
   "displayName": "LLM API Proxy Chat Provider",
   "description": "Integrates your local LLM API Proxy into VS Code Copilot Chat with dynamic model discovery",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "publisher": "vleeuwenmenno",
   "repository": {
     "type": "git",
