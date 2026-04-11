@@ -202,12 +202,19 @@ export class ProxyChatModelProvider implements LanguageModelChatProvider {
           typeof (msg as unknown as { content?: unknown }).content === "string"
             ? [(msg as unknown as { content: string }).content]
             : Array.isArray((msg as unknown as { content?: unknown[] }).content)
-              ? ((msg as unknown as { content: unknown[] }).content as Array<{
-                  type?: string;
-                  value?: string;
-                  text?: string;
-                }>)
-                  .filter((p) => p.type === "text" || typeof p.value === "string" || typeof p.text === "string")
+              ? (
+                  (msg as unknown as { content: unknown[] }).content as Array<{
+                    type?: string;
+                    value?: string;
+                    text?: string;
+                  }>
+                )
+                  .filter(
+                    (p) =>
+                      p.type === "text" ||
+                      typeof p.value === "string" ||
+                      typeof p.text === "string",
+                  )
                   .map((p) => p.value ?? p.text ?? "")
               : [];
         const text = parts.join(" ").trim();
@@ -328,11 +335,7 @@ export class ProxyChatModelProvider implements LanguageModelChatProvider {
         throw new Error("LLM API Proxy: response body is empty");
       }
 
-      const usage = await this.processStream(
-        response.body,
-        progress,
-        token,
-      );
+      const usage = await this.processStream(response.body, progress, token);
 
       if (usage) {
         this._lastUsage.set(model.id, usage);
@@ -453,10 +456,7 @@ export class ProxyChatModelProvider implements LanguageModelChatProvider {
           }
 
           // Capture usage from final chunk (sent when stream_options.include_usage is true)
-          if (
-            chunk.usage &&
-            (chunk.usage.prompt_tokens ?? 0) > 0
-          ) {
+          if (chunk.usage && (chunk.usage.prompt_tokens ?? 0) > 0) {
             capturedUsage = {
               promptTokens: chunk.usage.prompt_tokens ?? 0,
               completionTokens: chunk.usage.completion_tokens ?? 0,
