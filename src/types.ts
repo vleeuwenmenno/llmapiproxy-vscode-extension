@@ -93,6 +93,10 @@ export interface ProxyModel {
   max_output_tokens?: number;
   /** Feature flags e.g. ["vision", "tools"] */
   capabilities?: string[];
+  /** Backends that serve this model, in routing priority order */
+  available_backends?: string[];
+  /** Effective routing strategy e.g. "priority", "round-robin" */
+  routing_strategy?: string;
 }
 
 export interface ProxyModelList {
@@ -104,8 +108,10 @@ export interface ProxyModelList {
 export interface ModelInfo {
   id: string;
   displayName: string;
-  /** backend prefix extracted from id (e.g. "openrouter") */
-  backend: string;
+  /** Ordered list of backends that serve this model */
+  backends: string[];
+  /** Effective routing strategy e.g. "priority", "round-robin" */
+  routingStrategy?: string;
   contextLength?: number;
   maxOutputTokens?: number;
   supportsVision: boolean;

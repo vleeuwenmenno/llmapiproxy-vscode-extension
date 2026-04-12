@@ -2,7 +2,7 @@
   "name": "llmapiproxy-vscode-chat",
   "displayName": "LLM API Proxy Chat Provider",
   "description": "Integrates your local LLM API Proxy into VS Code Copilot Chat with dynamic model discovery",
-  "version": "0.1.5",
+  "version": "0.2.1",
   "publisher": "vleeuwenmenno",
   "repository": {
     "type": "git",
@@ -29,6 +29,32 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "llmapiproxy-sidebar",
+          "title": "LLM Proxy",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "llmapiproxy-sidebar": [
+        {
+          "id": "llmapiproxy.chatHistory",
+          "name": "Chat History"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "llmapiproxy.clearHistory",
+          "when": "view == llmapiproxy.chatHistory",
+          "group": "navigation"
+        }
+      ]
+    },
     "languageModelChatProviders": [
       {
         "vendor": "llmapiproxy",
@@ -46,6 +72,12 @@
         "command": "llmapiproxy.refreshModels",
         "title": "Refresh Available Models",
         "category": "LLM API Proxy"
+      },
+      {
+        "command": "llmapiproxy.clearHistory",
+        "title": "Clear Chat History",
+        "category": "LLM API Proxy",
+        "icon": "$(trash)"
       }
     ],
     "configuration": {

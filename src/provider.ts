@@ -5,12 +5,9 @@ import type {
   ModelInfo,
   ChatRequest,
 } from "./types";
-import {
-  convertMessages,
-  convertTools,
-  makeDisplayName,
-  extractBackend,
-} from "./utils";
+import { convertMessages, convertTools } from "./utils";
+import type { ChatHistoryStore, ChatRequestRecord } from "./chatHistory";
+import type { ChatHistoryTreeProvider } from "./chatHistoryView";
 import {
   CancellationToken,
   LanguageModelChatInformation,
@@ -34,7 +31,7 @@ interface ModelsCache {
   fetchedAt: number;
 }
 
-interface TokenUsage {
+export interface TokenUsage {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
@@ -52,8 +49,8 @@ export class ProxyChatModelProvider implements LanguageModelChatProvider {
   private _hasShownNoKeyNotification = false;
   private _lastUsage = new Map<string, TokenUsage>();
   private _tokenRatios = new Map<string, TokenRatio>();
-  private _statusBarItem: vscode.StatusBarItem | null = null;
-  private _outputChannel: vscode.OutputChannel | null = null;
+  private _historyStore: ChatHistoryStore | null = null;
+  private _treeProvider: ChatHistoryTreeProvider | null = null;
   private _requestCounter = 0;
 
   private readonly _onDidChangeLanguageModelChatInformation =
@@ -122,15 +119,13 @@ export class ProxyChatModelProvider implements LanguageModelChatProvider {
         return true;
       })
       .map((m) => {
-        const backendPrefix = extractBackend(m.id);
+        const backends = m.available_backends ?? [];
+        const routingStrategy = m.routing_strategy;
         return {
           id: m.id,
-          displayName: m.display_name
-            ? backendPrefix
-              ? `${m.display_name} (${backendPrefix})`
-              : m.display_name
-            : makeDisplayName(m.id),
-          backend: backendPrefix,
+          displayName: m.display_name ? m.display_name : m.id,
+          backends,
+          routingStrategy,
           contextLength: m.context_length,
           maxOutputTokens: m.max_output_tokens,
           supportsVision: m.capabilities?.includes("vision") ?? false,
@@ -182,52 +177,88 @@ export class ProxyChatModelProvider implements LanguageModelChatProvider {
     }
   }
 
-  /** Set the status bar item to update after each request */
-  setStatusBarItem(item: vscode.StatusBarItem): void {
-    this._statusBarItem = item;
+  /** Set the chat history store for TreeView population */
+  setHistoryStore(store: ChatHistoryStore): void {
+    this._historyStore = store;
   }
 
-  /** Set the output channel for detailed usage logging */
-  setOutputChannel(channel: vscode.OutputChannel): void {
-    this._outputChannel = channel;
+  /** Set the tree provider to refresh after each request */
+  setTreeProvider(provider: ChatHistoryTreeProvider): void {
+    this._treeProvider = provider;
   }
 
-  /** Extract a short label from the first user message for chat identification */
+  /**
+   * Strip VS Code-injected XML context blocks (e.g. <environment_info>…</environment_info>)
+   * from a string, then return the remaining trimmed text.
+   */
+  private stripInjectedBlocks(text: string): string {
+    // Remove complete XML-tag blocks that VS Code injects as context
+    return text
+      .replace(
+        /<[A-Za-z_][A-Za-z0-9_-]*[^>]*>[\s\S]*?<\/[A-Za-z_][A-Za-z0-9_-]*>/g,
+        "",
+      )
+      .trim();
+  }
+
+  /**
+   * Extract all text content from a single LanguageModelChatMessage,
+   * stripping injected XML blocks, joined into one string.
+   */
+  private extractMessageText(msg: vscode.LanguageModelChatMessage): string {
+    const parts: string[] = [];
+    for (const part of msg.content) {
+      if (part instanceof vscode.LanguageModelTextPart) {
+        parts.push(part.value);
+      } else if (
+        typeof part === "object" &&
+        part !== null &&
+        "value" in part &&
+        typeof (part as { value: unknown }).value === "string"
+      ) {
+        parts.push((part as { value: string }).value);
+      }
+    }
+    return this.stripInjectedBlocks(parts.join(" "));
+  }
+
+  /**
+   * Return a short display label extracted from the LAST user message
+   * (the actual user question, not system injections).
+   */
   private extractChatLabel(
     messages: readonly vscode.LanguageModelChatMessage[],
   ): string {
-    for (const msg of messages) {
-      if (msg.role === vscode.LanguageModelChatMessageRole.User) {
-        const parts =
-          typeof (msg as unknown as { content?: unknown }).content === "string"
-            ? [(msg as unknown as { content: string }).content]
-            : Array.isArray((msg as unknown as { content?: unknown[] }).content)
-              ? (
-                  (msg as unknown as { content: unknown[] }).content as Array<{
-                    type?: string;
-                    value?: string;
-                    text?: string;
-                  }>
-                )
-                  .filter(
-                    (p) =>
-                      p.type === "text" ||
-                      typeof p.value === "string" ||
-                      typeof p.text === "string",
-                  )
-                  .map((p) => p.value ?? p.text ?? "")
-              : [];
-        const text = parts.join(" ").trim();
-        if (text) {
-          // Take first line, truncate to 40 chars
-          const firstLine = text.split("\n")[0].trim();
-          return firstLine.length > 40
-            ? firstLine.slice(0, 37) + "..."
-            : firstLine;
-        }
+    // Walk messages in reverse — take text from the last user message
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (msg.role !== vscode.LanguageModelChatMessageRole.User) continue;
+      const text = this.extractMessageText(msg);
+      if (text) {
+        const firstLine = text.split("\n")[0].trim();
+        return firstLine.length > 40
+          ? firstLine.slice(0, 37) + "..."
+          : firstLine;
       }
     }
     return "(untitled)";
+  }
+
+  /**
+   * Return a stable session fingerprint from the FIRST user message
+   * (stripped of injected blocks) — used to group turns of the same chat.
+   */
+  private extractSessionId(
+    messages: readonly vscode.LanguageModelChatMessage[],
+  ): string {
+    for (const msg of messages) {
+      if (msg.role !== vscode.LanguageModelChatMessageRole.User) continue;
+      const text = this.extractMessageText(msg);
+      if (text) {
+        return text.slice(0, 60);
+      }
+    }
+    return "__unknown__";
   }
 
   /**
@@ -284,13 +315,28 @@ export class ProxyChatModelProvider implements LanguageModelChatProvider {
       // Subtracting maxOutput here caused double-reservation and premature
       // compaction (e.g. GPT-4 base: 8192 - 8192 = 1 token max input).
       const maxInput = Math.max(4096, contextWindow);
+
+      // Build detail line showing backend count and routing strategy
+      const backendCount = m.backends.length;
+      const strategy = m.routingStrategy ?? "priority";
+      const detail =
+        backendCount > 1
+          ? `via LLM Proxy (${backendCount} backends, ${strategy})`
+          : backendCount === 1
+            ? `via LLM Proxy (${m.backends[0]})`
+            : "via LLM API Proxy";
+
+      // Build tooltip with backend list
+      const tooltipParts = [`Model: ${m.id}`];
+      if (backendCount > 0) {
+        tooltipParts.push(`Backends: ${m.backends.join(" → ")} (${strategy})`);
+      }
+
       return {
         id: m.id,
         name: m.displayName,
-        detail: m.backend
-          ? `via LLM API Proxy (${m.backend})`
-          : "via LLM API Proxy",
-        tooltip: `Model: ${m.id}`,
+        detail,
+        tooltip: tooltipParts.join("\n"),
         family: "llmapiproxy",
         version: "1.0.0",
         maxInputTokens: maxInput,
@@ -372,26 +418,12 @@ export class ProxyChatModelProvider implements LanguageModelChatProvider {
         this._lastUsage.set(model.id, usage);
         this._requestCounter++;
         const chatLabel = this.extractChatLabel(messages);
+        const sessionId = this.extractSessionId(messages);
 
         // Console log (always)
         console.log(
           `[LLM Proxy] #${this._requestCounter} "${chatLabel}" | ${model.id}: prompt=${usage.promptTokens} completion=${usage.completionTokens} total=${usage.totalTokens}`,
         );
-
-        // Output channel log (detailed, per-request history)
-        if (this._outputChannel) {
-          const ts = new Date().toLocaleTimeString();
-          this._outputChannel.appendLine(
-            [
-              `[${ts}] Request #${this._requestCounter}`,
-              `  Chat:  ${chatLabel}`,
-              `  Model: ${model.id}`,
-              `  Prompt:     ${usage.promptTokens.toLocaleString()} tokens`,
-              `  Completion: ${usage.completionTokens.toLocaleString()} tokens`,
-              `  Total:      ${usage.totalTokens.toLocaleString()}`,
-            ].join("\n"),
-          );
-        }
 
         // Update adaptive token ratio
         if (usage.promptTokens > 0 && inputStr.length > 0) {
@@ -409,44 +441,22 @@ export class ProxyChatModelProvider implements LanguageModelChatProvider {
           }
         }
 
-        // Update status bar (shows last request with chat label)
-        this.updateStatusBar(model.id, usage, chatLabel);
+        // Record in chat history store and refresh tree view
+        if (this._historyStore) {
+          const record: ChatRequestRecord = {
+            requestNumber: this._requestCounter,
+            timestamp: new Date(),
+            modelId: model.id,
+            usage,
+            chatLabel,
+          };
+          this._historyStore.addRequest(sessionId, chatLabel, record);
+          this._treeProvider?.refresh();
+        }
       }
     } finally {
       cancelSub.dispose();
     }
-  }
-
-  private updateStatusBar(
-    modelId: string,
-    usage: TokenUsage,
-    chatLabel: string,
-  ): void {
-    if (!this._statusBarItem) return;
-    const promptK =
-      usage.promptTokens >= 1000
-        ? `${(usage.promptTokens / 1000).toFixed(1)}k`
-        : `${usage.promptTokens}`;
-    const completionK =
-      usage.completionTokens >= 1000
-        ? `${(usage.completionTokens / 1000).toFixed(1)}k`
-        : `${usage.completionTokens}`;
-    // Truncate chat label for status bar (max ~20 chars to stay compact)
-    const shortLabel =
-      chatLabel.length > 20 ? chatLabel.slice(0, 17) + "..." : chatLabel;
-    this._statusBarItem.text = `$(sparkle) "${shortLabel}" ${promptK}↑ ${completionK}↓`;
-    this._statusBarItem.tooltip = [
-      `LLM Proxy — Last Request (#${this._requestCounter})`,
-      ``,
-      `Chat:  ${chatLabel}`,
-      `Model: ${modelId}`,
-      ``,
-      `  Prompt:     ${usage.promptTokens.toLocaleString()} tokens`,
-      `  Completion: ${usage.completionTokens.toLocaleString()} tokens`,
-      `  Total:      ${usage.totalTokens.toLocaleString()} tokens`,
-    ].join("\n");
-    this._statusBarItem.command = "llmapiproxy.showUsageLog";
-    this._statusBarItem.show();
   }
 
   private async processStream(

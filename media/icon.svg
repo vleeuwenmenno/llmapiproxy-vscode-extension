@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
+  <!-- Chat bubble -->
+  <path fill="#C5C5C5" d="M2 2h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H9l-3 2v-2H2a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"/>
+  <!-- Sparkle dot -->
+  <circle cx="5" cy="7" r="1" fill="#1E1E1E"/>
+  <circle cx="8" cy="7" r="1" fill="#1E1E1E"/>
+  <circle cx="11" cy="7" r="1" fill="#1E1E1E"/>
+</svg>
