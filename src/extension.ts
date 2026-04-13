@@ -1,25 +1,11 @@
 import * as vscode from "vscode";
 import { ProxyChatModelProvider } from "./provider";
-import { ChatHistoryStore } from "./chatHistory";
-import { ChatHistoryTreeProvider } from "./chatHistoryView";
 
 let _provider: ProxyChatModelProvider | null = null;
 
 export function activate(context: vscode.ExtensionContext) {
   const provider = new ProxyChatModelProvider(context.secrets);
   _provider = provider;
-
-  // Wire up chat history store and tree view
-  const historyStore = new ChatHistoryStore();
-  const historyTreeProvider = new ChatHistoryTreeProvider(historyStore);
-  provider.setHistoryStore(historyStore);
-  provider.setTreeProvider(historyTreeProvider);
-
-  const treeView = vscode.window.createTreeView("llmapiproxy.chatHistory", {
-    treeDataProvider: historyTreeProvider,
-    showCollapseAll: true,
-  });
-  context.subscriptions.push(treeView);
 
   // Re-fetch models when API key changes in SecretStorage
   context.subscriptions.push(
@@ -46,24 +32,6 @@ export function activate(context: vscode.ExtensionContext) {
     provider,
   );
   context.subscriptions.push(registration);
-
-  // Command to show the chat history sidebar
-  context.subscriptions.push(
-    vscode.commands.registerCommand("llmapiproxy.showUsageLog", () => {
-      vscode.commands.executeCommand("llmapiproxy.chatHistory.focus");
-    }),
-  );
-
-  // Command to clear all chat history
-  context.subscriptions.push(
-    vscode.commands.registerCommand("llmapiproxy.clearHistory", () => {
-      historyStore.clear();
-      historyTreeProvider.refresh();
-      vscode.window.showInformationMessage(
-        "LLM API Proxy: Chat history cleared.",
-      );
-    }),
-  );
 
   context.subscriptions.push(
     vscode.commands.registerCommand("llmapiproxy.manage", async () => {
