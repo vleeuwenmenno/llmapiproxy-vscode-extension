@@ -6,8 +6,7 @@ import type {
   ChatRequest,
 } from "./types";
 import { convertMessages, convertTools } from "./utils";
-import type { ChatHistoryStore, ChatRequestRecord } from "./chatHistory";
-import type { ChatHistoryTreeProvider } from "./chatHistoryView";
+
 import {
   CancellationToken,
   LanguageModelChatInformation,
@@ -49,9 +48,7 @@ export class ProxyChatModelProvider implements LanguageModelChatProvider {
   private _hasShownNoKeyNotification = false;
   private _lastUsage = new Map<string, TokenUsage>();
   private _tokenRatios = new Map<string, TokenRatio>();
-  private _historyStore: ChatHistoryStore | null = null;
-  private _treeProvider: ChatHistoryTreeProvider | null = null;
-  private _requestCounter = 0;
+
 
   private readonly _onDidChangeLanguageModelChatInformation =
     new EventEmitter<void>();
@@ -177,15 +174,7 @@ export class ProxyChatModelProvider implements LanguageModelChatProvider {
     }
   }
 
-  /** Set the chat history store for TreeView population */
-  setHistoryStore(store: ChatHistoryStore): void {
-    this._historyStore = store;
-  }
 
-  /** Set the tree provider to refresh after each request */
-  setTreeProvider(provider: ChatHistoryTreeProvider): void {
-    this._treeProvider = provider;
-  }
 
   /**
    * Strip VS Code-injected XML context blocks (e.g. <environment_info>…</environment_info>)
@@ -222,44 +211,7 @@ export class ProxyChatModelProvider implements LanguageModelChatProvider {
     return this.stripInjectedBlocks(parts.join(" "));
   }
 
-  /**
-   * Return a short display label extracted from the LAST user message
-   * (the actual user question, not system injections).
-   */
-  private extractChatLabel(
-    messages: readonly vscode.LanguageModelChatMessage[],
-  ): string {
-    // Walk messages in reverse — take text from the last user message
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const msg = messages[i];
-      if (msg.role !== vscode.LanguageModelChatMessageRole.User) continue;
-      const text = this.extractMessageText(msg);
-      if (text) {
-        const firstLine = text.split("\n")[0].trim();
-        return firstLine.length > 40
-          ? firstLine.slice(0, 37) + "..."
-          : firstLine;
-      }
-    }
-    return "(untitled)";
-  }
 
-  /**
-   * Return a stable session fingerprint from the FIRST user message
-   * (stripped of injected blocks) — used to group turns of the same chat.
-   */
-  private extractSessionId(
-    messages: readonly vscode.LanguageModelChatMessage[],
-  ): string {
-    for (const msg of messages) {
-      if (msg.role !== vscode.LanguageModelChatMessageRole.User) continue;
-      const text = this.extractMessageText(msg);
-      if (text) {
-        return text.slice(0, 60);
-      }
-    }
-    return "__unknown__";
-  }
 
   /**
    * Extract the actual text content from a chat message, ignoring JSON structure.
@@ -417,12 +369,9 @@ export class ProxyChatModelProvider implements LanguageModelChatProvider {
       if (usage) {
         this._lastUsage.set(model.id, usage);
         this._requestCounter++;
-        const chatLabel = this.extractChatLabel(messages);
-        const sessionId = this.extractSessionId(messages);
-
         // Console log (always)
         console.log(
-          `[LLM Proxy] #${this._requestCounter} "${chatLabel}" | ${model.id}: prompt=${usage.promptTokens} completion=${usage.completionTokens} total=${usage.totalTokens}`,
+          `[LLM Proxy] ${model.id}: prompt=${usage.promptTokens} completion=${usage.completionTokens} total=${usage.totalTokens}`,
         );
 
         // Update adaptive token ratio
@@ -439,19 +388,6 @@ export class ProxyChatModelProvider implements LanguageModelChatProvider {
               samples: 1,
             });
           }
-        }
-
-        // Record in chat history store and refresh tree view
-        if (this._historyStore) {
-          const record: ChatRequestRecord = {
-            requestNumber: this._requestCounter,
-            timestamp: new Date(),
-            modelId: model.id,
-            usage,
-            chatLabel,
-          };
-          this._historyStore.addRequest(sessionId, chatLabel, record);
-          this._treeProvider?.refresh();
         }
       }
     } finally {

@@ -29,32 +29,6 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
-    "viewsContainers": {
-      "activitybar": [
-        {
-          "id": "llmapiproxy-sidebar",
-          "title": "LLM Proxy",
-          "icon": "media/icon.svg"
-        }
-      ]
-    },
-    "views": {
-      "llmapiproxy-sidebar": [
-        {
-          "id": "llmapiproxy.chatHistory",
-          "name": "Chat History"
-        }
-      ]
-    },
-    "menus": {
-      "view/title": [
-        {
-          "command": "llmapiproxy.clearHistory",
-          "when": "view == llmapiproxy.chatHistory",
-          "group": "navigation"
-        }
-      ]
-    },
     "languageModelChatProviders": [
       {
         "vendor": "llmapiproxy",
@@ -72,12 +46,6 @@
         "command": "llmapiproxy.refreshModels",
         "title": "Refresh Available Models",
         "category": "LLM API Proxy"
-      },
-      {
-        "command": "llmapiproxy.clearHistory",
-        "title": "Clear Chat History",
-        "category": "LLM API Proxy",
-        "icon": "$(trash)"
       }
     ],
     "configuration": {
