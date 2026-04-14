@@ -48,6 +48,7 @@ export class ProxyChatModelProvider implements LanguageModelChatProvider {
   private _hasShownNoKeyNotification = false;
   private _lastUsage = new Map<string, TokenUsage>();
   private _tokenRatios = new Map<string, TokenRatio>();
+  private _requestCounter = 0;
 
 
   private readonly _onDidChangeLanguageModelChatInformation =
