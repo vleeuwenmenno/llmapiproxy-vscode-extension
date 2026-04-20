@@ -433,6 +433,8 @@ export class ProxyChatModelProvider implements LanguageModelChatProvider {
             continue;
           }
 
+          if (!chunk || typeof chunk !== "object") continue;
+
           // Capture usage from final chunk (sent when stream_options.include_usage is true)
           if (chunk.usage && (chunk.usage.prompt_tokens ?? 0) > 0) {
             capturedUsage = {
@@ -442,8 +444,10 @@ export class ProxyChatModelProvider implements LanguageModelChatProvider {
             };
           }
 
-          for (const choice of chunk.choices) {
-            const delta = choice.delta;
+          const choices = chunk.choices ?? [];
+          for (const choice of choices) {
+            const delta = choice?.delta;
+            if (!delta) continue;
 
             if (delta.content) {
               progress.report(new vscode.LanguageModelTextPart(delta.content));
